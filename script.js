@@ -1,95 +1,132 @@
 mapboxgl.accessToken = CONFIG.MAPBOX_TOKEN;
 
-// Crank up a vibrant, stylized Mapbox globe
+// Initialize dark, minimal canvas style map
 const map = new mapboxgl.Map({
     container: 'map',
-    style: 'mapbox://styles/mapbox/navigation-night-v1', // Bright neon lines on dark canvas
-    center: [-20, 25], 
-    zoom: 2,
+    style: 'mapbox://styles/mapbox/dark-v11', 
+    center: [-15, 30], 
+    zoom: 1.8,
     projection: 'globe'
 });
 
-// Give space a deep purple/neon glow aesthetic
+// Configure space/horizon fog properties
 map.on('style.load', () => {
     map.setFog({
-        'range': [0.5, 8],
-        'color': '#130f26',
-        'high-color': '#0a0813',
-        'space-color': '#030206',
-        'horizon-blend': 0.08
+        'range': [0.5, 10],
+        'color': '#0b0c10',
+        'high-color': '#1f2833',
+        'space-color': '#000000',
+        'horizon-blend': 0.03
     });
 });
 
-let totalSquadCount = 0;
 let pendingCoordinates = null;
 let currentPlaceName = "";
 
-// 1. Listen for User Click to Open Creator Tool
-map.on('click', async (e) => {
-    const { lng, lat } = e.lngLat;
+// Triggered when a location is locked in (either via click or via search box)
+async function handleLocationSelect(lng, lat) {
     pendingCoordinates = [lng, lat];
 
-    // Smooth hyper-dive camera animation
-    map.flyTo({ center: [lng, lat], zoom: 4.5, speed: 1.4, essential: true });
+    map.flyTo({ center: [lng, lat], zoom: 6, speed: 1.3, essential: true });
 
-    // Look up where on Earth they clicked
     try {
         const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${mapboxgl.accessToken}`);
         const data = await response.json();
         
-        currentPlaceName = "International Waters 🌊";
+        currentPlaceName = "Unknown Coordinates";
         if (data.features && data.features.length > 0) {
             currentPlaceName = data.features[0].place_name;
         }
 
-        // Pop open the neon Creation UI
-        const overlay = document.getElementById('creation-overlay');
-        overlay.style.display = 'block';
-        document.getElementById('loc-display').innerText = `📍 ${currentPlaceName}`;
+        // Show inputs panel
+        document.getElementById('creation-overlay').style.display = 'block';
+        document.getElementById('loc-display').innerText = currentPlaceName;
         
-        // Reset name box and focus on it automatically
-        document.getElementById('friend-name').value = "";
-        document.getElementById('friend-name').focus();
+        // Clear old inputs fields
+        document.getElementById('profile-name').value = "";
+        document.getElementById('profile-role').value = "";
+        document.getElementById('profile-notes').value = "";
+        document.getElementById('profile-name').focus();
 
     } catch (err) {
-        console.error("Geocoding failed:", err);
+        console.error("Geocoding fetch failed:", err);
     }
+}
+
+// Event 1: Map click detection
+map.on('click', (e) => {
+    const { lng, lat } = e.lngLat;
+    handleLocationSelect(lng, lat);
 });
 
-// 2. Handle Locking In a Friend!
-document.getElementById('spawn-button').addEventListener('click', () => {
-    const nameInput = document.getElementById('friend-name').value.trim();
-    const emojiSelect = document.getElementById('friend-emoji').value;
+// Event 2: Search engine execution
+async function executeSearch() {
+    const query = document.getElementById('search-input').value.trim();
+    if (!query) return;
 
-    // Don't add blank names!
-    if (!nameInput) {
-        alert("Give your crew member a name first! 🔥");
+    try {
+        const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxgl.accessToken}`);
+        const data = await response.json();
+
+        if (data.features && data.features.length > 0) {
+            const [lng, lat] = data.features[0].center;
+            handleLocationSelect(lng, lat);
+        } else {
+            alert("Location not found. Try entering a broader city or country name.");
+        }
+    } catch (err) {
+        console.error("Search query failed:", err);
+    }
+}
+
+document.getElementById('search-button').addEventListener('click', executeSearch);
+document.getElementById('search-input').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') executeSearch();
+});
+
+// Event 3: Commit Form and Plot Dot Marker
+document.getElementById('save-button').addEventListener('click', () => {
+    const name = document.getElementById('profile-name').value.trim();
+    const role = document.getElementById('profile-role').value.trim();
+    const notes = document.getElementById('profile-notes').value.trim();
+
+    if (!name) {
+        alert("Please enter a name to save the connection.");
         return;
     }
 
-    // Update Game Score
-    totalSquadCount++;
-    document.getElementById('friend-count').innerText = totalSquadCount;
-
-    // Add to Sidebar Log Feed
-    const log = document.getElementById('friend-log');
+    // Append Node to Sidebar Feed
+    const log = document.getElementById('profile-log');
     const item = document.createElement('div');
-    item.className = 'friend-list-item';
-    item.innerHTML = `<strong>${emojiSelect} ${nameInput}</strong><br><span style="font-size:0.75rem; color:#00ffff;">${currentPlaceName}</span>`;
+    item.className = 'profile-item';
+    item.innerHTML = `
+        <strong>${name}</strong>
+        <span>${role || 'Connection'}</span>
+        ${notes ? `<p>${notes}</p>` : ''}
+        <small style="font-size: 0.7rem; color: #45a29e; display:block; margin-top:5px;">${currentPlaceName}</small>
+    `;
     log.prepend(item);
 
-    // Create a Custom Emoji DOM Element for the Map Marker
-    const el = document.createElement('div');
-    el.className = 'custom-marker';
-    el.innerHTML = emojiSelect;
+    // Create Minimalist Dot DOM Node
+    const dot = document.createElement('div');
+    dot.className = 'dot-marker';
 
-    // Drop the custom emoji pin directly onto the globe coordinates
-    new mapboxgl.Marker(el)
+    // Establish Marker and Map Popup details
+    const popupContent = `
+        <div style="color: #0b0c10; font-family: sans-serif; padding: 5px;">
+            <h4 style="margin: 0 0 2px 0; font-size: 0.95rem;">${name}</h4>
+            <p style="margin: 0 0 4px 0; font-size: 0.8rem; color: #45a29e; font-weight:600;">${role}</p>
+            <p style="margin: 0; font-size: 0.75rem; color: #555;">${notes}</p>
+        </div>
+    `;
+
+    new mapboxgl.Marker(dot)
         .setLngLat(pendingCoordinates)
-        .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(`<h3 style="color:#000; margin:0;">${nameInput} is here!</h3>`))
+        .setPopup(new mapboxgl.Popup({ offset: 15 }).setHTML(popupContent))
         .addTo(map);
 
-    // Hide the creation pop-up panel till next click
+    // Close inputs frame
     document.getElementById('creation-overlay').style.display = 'none';
+    document.getElementById('search-input').value = "";
     pendingCoordinates = null;
 });
